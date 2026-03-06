@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  StyleSheet,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../../hooks/useTheme';
@@ -28,18 +29,20 @@ export default function SearchScreen() {
   const { theme } = useTheme();
   const styles = createStyles(theme);
 
+  // Debounced search
   const performSearch = useCallback(
     debounce(async (query: string) => {
       if (!query.trim()) {
         setSearchResults([]);
         return;
       }
-
       setLoading(true);
       try {
+        // Search users by username or email
         const results = await profileService.searchUsers(query);
         setSearchResults(results);
       } catch (error) {
+        console.error('Search error:', error);
         showMessage({
           message: 'Error',
           description: 'Failed to search users',
@@ -91,33 +94,30 @@ export default function SearchScreen() {
 
   const renderEmpty = () => {
     if (loading) return null;
-    if (!searchQuery) {
-      return (
-        <View style={styles.emptyContainer}>
-          <Icon name="search-outline" size={64} color={theme.colors.textSecondary} />
-          <Text style={styles.emptyText}>Search for users</Text>
-          <Text style={styles.emptySubtext}>
-            Find other users by their username
-          </Text>
-        </View>
-      );
-    }
+
+    const iconName = searchQuery ? 'person-outline' : 'search-outline';
+    const title = searchQuery ? 'No users found' : 'Search for users';
+    const subText = searchQuery
+      ? 'Try a different search term'
+      : 'Find other users by their username or email';
+
     return (
       <View style={styles.emptyContainer}>
-        <Icon name="person-outline" size={64} color={theme.colors.textSecondary} />
-        <Text style={styles.emptyText}>No users found</Text>
-        <Text style={styles.emptySubtext}>Try a different search term</Text>
+        <Icon name={iconName} size={64} color={theme.colors.textSecondary} />
+        <Text style={styles.emptyText}>{title}</Text>
+        <Text style={styles.emptySubtext}>{subText}</Text>
       </View>
     );
   };
 
   return (
     <View style={styles.container}>
-      <View style={styles.searchContainer}>
+      {/* Search Bar */}
+      <View style={[styles.searchContainer, { backgroundColor: theme.colors.surface }]}>
         <Icon name="search" size={20} color={theme.colors.textSecondary} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search users..."
+          placeholder="Search by username or email..."
           placeholderTextColor={theme.colors.textSecondary}
           value={searchQuery}
           onChangeText={handleSearch}
@@ -131,6 +131,7 @@ export default function SearchScreen() {
         )}
       </View>
 
+      {/* Loading Indicator */}
       {loading && searchResults.length === 0 ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
@@ -149,7 +150,7 @@ export default function SearchScreen() {
             />
           }
           ListEmptyComponent={renderEmpty}
-          contentContainerStyle={styles.searchResults}
+          contentContainerStyle={searchResults.length === 0 ? { flexGrow: 1 } : undefined}
         />
       )}
     </View>

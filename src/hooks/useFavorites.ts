@@ -1,83 +1,72 @@
 import { useState, useEffect, useCallback } from 'react';
 import { favoritesService } from '../services/favorites.service';
-import { showMessage } from 'react-native-flash-message';
-import { useAuth } from './useAuth';
 import { Post } from '../types';
+import { DocumentSnapshot } from 'firebase/firestore';
+import { useAuth } from '../hooks/useAuth';
 
-export const useFavorites = (initialLimit = 10) => {
-  const [favorites, setFavorites] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const [lastVisible, setLastVisible] = useState<any>(null);
+const PAGE_SIZE = 10;
+
+export const useFavorites = () => {
   const { user } = useAuth();
+  const [favorites, setFavorites] = useState<Post[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [lastVisible, setLastVisible] = useState<DocumentSnapshot | null>(null);
+  const [hasMore, setHasMore] = useState<boolean>(true);
 
-  const loadFavorites = useCallback(async (refresh = false) => {
+  const fetchFavorites = useCallback(async (isRefresh = false) => {
     if (!user) return;
-    
     try {
-      setLoading(true);
-      const result = await favoritesService.getUserFavorites(
-        user.uid,
-        refresh ? null : lastVisible,
-        initialLimit
-      );
-      
-      if (refresh) {
-        setFavorites(result.favorites);
+      if (isRefresh) {
+        setRefreshing(true);
       } else {
-        setFavorites(prev => [...prev, ...result.favorites]);
+        setLoading(true);
       }
-      
-      setLastVisible(result.lastVisible);
-      setHasMore(result.hasMore);
-    } catch (error: any) {
-      showMessage({
-        message: 'Error',
-        description: 'Failed to load favorites',
-        type: 'danger',
-      });
+
+      const { favorites: newFavorites, lastVisible: lastDoc, hasMore: more } =
+        await favoritesService.getUserFavorites(user.uid, isRefresh ? null : lastVisible, PAGE_SIZE);
+
+      setFavorites(prev => (isRefresh ? newFavorites : [...prev, ...newFavorites]));
+      setLastVisible(lastDoc);
+      setHasMore(more);
+    } catch (error) {
+      console.error('Error fetching favorites:', error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, [user, lastVisible, initialLimit]);
-
-  const refreshFavorites = useCallback(async () => {
-    setRefreshing(true);
-    await loadFavorites(true);
-    setRefreshing(false);
-  }, [loadFavorites]);
-
-  const loadMore = useCallback(() => {
-    if (hasMore && !loading) {
-      loadFavorites();
-    }
-  }, [hasMore, loading, loadFavorites]);
-
-  const removeFavorite = useCallback(async (postId: string) => {
-    try {
-      await favoritesService.toggleFavorite(postId, false);
-      setFavorites(prev => prev.filter(fav => fav.id !== postId));
-    } catch (error) {
-      showMessage({
-        message: 'Error',
-        description: 'Failed to remove favorite',
-        type: 'danger',
-      });
-    }
-  }, []);
+  }, [user, lastVisible]);
 
   useEffect(() => {
-    loadFavorites(true);
-  }, []);
+    fetchFavorites(true);
+  }, [fetchFavorites]);
+
+  const refreshFavorites = useCallback(async () => {
+    setLastVisible(null);
+    await fetchFavorites(true);
+  }, [fetchFavorites]);
+
+  const loadMore = useCallback(async () => {
+    if (!hasMore || loading) return;
+    await fetchFavorites(false);
+  }, [hasMore, loading, fetchFavorites]);
+
+  const removeFavorite = useCallback(async (postId: string) => {
+    if (!user) return;
+    try {
+      await favoritesService.toggleFavorite(user.uid, postId, false);
+      setFavorites(prev => prev.filter(post => post.id !== postId));
+    } catch (error) {
+      console.error('Failed to remove favorite:', error);
+    }
+  }, [user]);
 
   return {
     favorites,
     loading,
     refreshing,
-    hasMore,
-    loadMore,
     refreshFavorites,
+    loadMore,
     removeFavorite,
   };
 };

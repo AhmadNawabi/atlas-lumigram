@@ -10,9 +10,12 @@ import { FlashList } from '@shopify/flash-list';
 import { FeedPost } from '../../components/home/FeedPost';
 import { useFavorites } from '../../hooks/useFavorites';
 import { useTheme } from '../../hooks/useTheme';
+import { useAuth } from '../../hooks/useAuth';
 import { createStyles } from '../../utils/theme';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { Post } from '../../types';
+import { useNavigation } from '@react-navigation/native';
+import { showMessage } from 'react-native-flash-message';
 
 export default function FavoritesScreen() {
   const {
@@ -25,15 +28,59 @@ export default function FavoritesScreen() {
   } = useFavorites();
   
   const { theme } = useTheme();
+  const { user } = useAuth();
+  const navigation = useNavigation<any>();
   const styles = createStyles(theme);
 
-  const handleDoubleTap = useCallback((postId: string) => {
-    removeFavorite(postId);
-    Alert.alert('Removed', 'Removed from favorites');
-  }, [removeFavorite]);
+  const handleDoubleTap = useCallback(async (postId: string) => {
+    if (!user) return;
+
+    try {
+      await removeFavorite(postId); // toggle favorite already removes if exists
+      showMessage({
+        message: 'Removed from favorites',
+        type: 'info',
+        duration: 1500,
+      });
+    } catch (error) {
+      showMessage({
+        message: 'Failed to update favorite',
+        type: 'danger',
+        duration: 1500,
+      });
+    }
+  }, [removeFavorite, user]);
+
+  const handleLike = useCallback(() => {
+    showMessage({
+      message: 'Feature coming soon',
+      type: 'info',
+      duration: 1500,
+    });
+  }, []);
 
   const handleLongPress = useCallback((caption: string) => {
     Alert.alert('Caption', caption);
+  }, []);
+
+  const handleUserPress = useCallback((userId: string) => {
+    navigation.navigate('UserProfile', { userId });
+  }, [navigation]);
+
+  const handleComment = useCallback(() => {
+    showMessage({
+      message: 'Comments coming soon',
+      type: 'info',
+      duration: 1500,
+    });
+  }, []);
+
+  const handleShare = useCallback(() => {
+    showMessage({
+      message: 'Share feature coming soon',
+      type: 'info',
+      duration: 1500,
+    });
   }, []);
 
   const renderFooter = (): JSX.Element | null => {
@@ -62,7 +109,12 @@ export default function FavoritesScreen() {
     <FeedPost
       post={item}
       onDoubleTap={() => handleDoubleTap(item.id)}
+      onLike={handleLike}
       onLongPress={() => handleLongPress(item.caption)}
+      onUserPress={() => handleUserPress(item.userId)}
+      onComment={handleComment}
+      onShare={handleShare}
+      currentUserId={user?.uid}
     />
   );
 
@@ -77,7 +129,7 @@ export default function FavoritesScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { flex: 1 }]}>
       <FlashList
         data={favorites}
         renderItem={renderItem}

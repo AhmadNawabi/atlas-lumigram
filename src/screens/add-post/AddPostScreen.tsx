@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
-  StyleSheet,
+  Linking,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
@@ -20,10 +20,16 @@ import { postsService } from '../../services/posts.service';
 import { storageService } from '../../services/storage.service';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { showMessage } from 'react-native-flash-message';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { RootStackParamList } from '../../navigation/types';
-
-type AddPostScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Main'>;
+import Animated, {
+  FadeIn,
+  FadeOut,
+  SlideInDown,
+  SlideOutDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 
 export default function AddPostScreen() {
   const [image, setImage] = useState<string | null>(null);
@@ -31,10 +37,13 @@ export default function AddPostScreen() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   
-  const navigation = useNavigation<AddPostScreenNavigationProp>();
+  const navigation = useNavigation();
   const { user } = useAuth();
   const { theme } = useTheme();
   const styles = createStyles(theme);
+
+  const scale = useSharedValue(1);
+  const opacity = useSharedValue(1);
 
   const pickImage = async () => {
     try {
@@ -46,7 +55,14 @@ export default function AddPostScreen() {
           'Please grant camera roll permissions to upload photos',
           [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Open Settings', onPress: () => Alert.alert('Please enable permissions in your device settings') }
+            { 
+              text: 'Open Settings', 
+              onPress: () => {
+                if (Platform.OS === 'ios') {
+                  Linking.openURL('app-settings:');
+                }
+              }
+            }
           ]
         );
         return;
@@ -55,15 +71,16 @@ export default function AddPostScreen() {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
+        aspect: [1, 1],
         quality: 0.8,
-        base64: false,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         setImage(result.assets[0].uri);
+        scale.value = withSpring(1);
+        opacity.value = withTiming(1);
       }
     } catch (error) {
-      console.error('Image picker error:', error);
       showMessage({
         message: 'Error',
         description: 'Failed to pick image',
@@ -82,7 +99,14 @@ export default function AddPostScreen() {
           'Please grant camera permissions to take photos',
           [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Open Settings', onPress: () => Alert.alert('Please enable permissions in your device settings') }
+            { 
+              text: 'Open Settings', 
+              onPress: () => {
+                if (Platform.OS === 'ios') {
+                  Linking.openURL('app-settings:');
+                }
+              }
+            }
           ]
         );
         return;
@@ -90,15 +114,16 @@ export default function AddPostScreen() {
 
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
+        aspect: [1, 1],
         quality: 0.8,
-        base64: false,
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         setImage(result.assets[0].uri);
+        scale.value = withSpring(1);
+        opacity.value = withTiming(1);
       }
     } catch (error) {
-      console.error('Camera error:', error);
       showMessage({
         message: 'Error',
         description: 'Failed to take photo',
@@ -127,12 +152,9 @@ export default function AddPostScreen() {
     setUploadProgress(0);
 
     try {
-      // Generate a unique filename
-      const timestamp = Date.now();
-      const filename = `post_${timestamp}.jpg`;
+      const filename = storageService.generateFilename('post');
       const storagePath = `posts/${user.uid}/${filename}`;
 
-      // Upload image to storage
       const imageUrl = await storageService.uploadImage(
         image,
         storagePath,
@@ -141,7 +163,6 @@ export default function AddPostScreen() {
         }
       );
 
-      // Create post in Firestore
       await postsService.createPost({
         imageUrl,
         caption: caption.trim(),
@@ -157,15 +178,18 @@ export default function AddPostScreen() {
         duration: 3000,
       });
 
-      // Reset form
-      setImage(null);
-      setCaption('');
-      setUploadProgress(0);
+      // Reset form with animation
+      scale.value = withSpring(0.8);
+      opacity.value = withTiming(0);
       
-      // Navigate to home tab
-      navigation.navigate('Main');
+      setTimeout(() => {
+        setImage(null);
+        setCaption('');
+        setUploadProgress(0);
+        navigation.goBack();
+      }, 300);
+      
     } catch (error) {
-      console.error('Upload error:', error);
       showMessage({
         message: 'Error',
         description: error instanceof Error ? error.message : 'Failed to upload post',
@@ -178,62 +202,51 @@ export default function AddPostScreen() {
   };
 
   const removeImage = () => {
-    setImage(null);
-    setCaption('');
+    scale.value = withSpring(0.8);
+    opacity.value = withTiming(0);
+    setTimeout(() => {
+      setImage(null);
+      setCaption('');
+    }, 300);
   };
 
-  const renderImagePickerButtons = () => (
-    <View style={styles.imagePickerContainer}>
-      <TouchableOpacity
-        style={[styles.imagePickerButton, isUploading && styles.buttonDisabled]}
-        onPress={pickImage}
-        disabled={isUploading}
-      >
-        <Icon name="images-outline" size={48} color={theme.colors.primary} />
-        <Text style={styles.imagePickerText}>Choose from Gallery</Text>
-      </TouchableOpacity>
-      
-      <TouchableOpacity
-        style={[styles.imagePickerButton, isUploading && styles.buttonDisabled]}
-        onPress={takePhoto}
-        disabled={isUploading}
-      >
-        <Icon name="camera-outline" size={48} color={theme.colors.primary} />
-        <Text style={styles.imagePickerText}>Take a Photo</Text>
-      </TouchableOpacity>
-    </View>
-  );
+  const animatedImageStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+    opacity: opacity.value,
+  }));
 
-  const renderSelectedImage = () => (
-    <View style={styles.selectedImageContainer}>
-      <Image 
-        source={{ uri: image as string }} 
-        style={styles.selectedImage}
-        resizeMode="cover"
-      />
-      <TouchableOpacity
-        style={styles.removeImageButton}
-        onPress={removeImage}
-        disabled={isUploading}
-      >
-        <Icon name="close-circle" size={30} color={theme.colors.error} />
-      </TouchableOpacity>
-    </View>
-  );
-
-  const renderProgress = () => (
-    <View style={styles.progressContainer}>
-      <View 
-        style={[
-          styles.progressBar, 
-          { width: `${uploadProgress}%` }
-        ]} 
-      />
-      <Text style={styles.progressText}>
-        Uploading... {Math.round(uploadProgress)}%
-      </Text>
-    </View>
-  );
+  if (!image) {
+    return (
+      <View style={[styles.container, styles.addPostContainer]}>
+        <Animated.View 
+          entering={FadeIn.duration(500)}
+          style={styles.imagePickerContainer}
+        >
+          <TouchableOpacity
+            style={styles.imagePickerButton}
+            onPress={pickImage}
+            disabled={isUploading}
+          >
+            <View style={styles.imagePickerIconContainer}>
+              <Icon name="images-outline" size={48} color={theme.colors.primary} />
+            </View>
+            <Text style={styles.imagePickerText}>Choose from Gallery</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={styles.imagePickerButton}
+            onPress={takePhoto}
+            disabled={isUploading}
+          >
+            <View style={styles.imagePickerIconContainer}>
+              <Icon name="camera-outline" size={48} color={theme.colors.primary} />
+            </View>
+            <Text style={styles.imagePickerText}>Take a Photo</Text>
+          </TouchableOpacity>
+        </Animated.View>
+      </View>
+    );
+  }
 
   return (
     <ScrollView 
@@ -242,50 +255,84 @@ export default function AddPostScreen() {
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}
     >
-      {/* Image Selection */}
-      {!image ? renderImagePickerButtons() : renderSelectedImage()}
-
-      {/* Caption Input */}
-      {image && (
-        <>
-          <TextInput
-            style={[styles.input, styles.captionInput]}
-            placeholder="Write a caption..."
-            placeholderTextColor={theme.colors.textSecondary}
-            value={caption}
-            onChangeText={setCaption}
-            multiline
-            numberOfLines={4}
-            maxLength={2200}
-            editable={!isUploading}
-            textAlignVertical="top"
+      <Animated.View 
+        entering={SlideInDown.springify().damping(15)}
+        exiting={SlideOutDown}
+        style={styles.selectedImageContainer}
+      >
+        <Animated.View style={animatedImageStyle}>
+          <Image 
+            source={{ uri: image }} 
+            style={styles.selectedImage}
+            resizeMode="cover"
           />
+        </Animated.View>
+        
+        <TouchableOpacity
+          style={styles.removeImageButton}
+          onPress={removeImage}
+          disabled={isUploading}
+        >
+          <Icon name="close-circle" size={30} color={theme.colors.error} />
+        </TouchableOpacity>
+      </Animated.View>
 
-          {/* Character Count */}
-          <Text style={[styles.captionCount, { color: theme.colors.textSecondary }]}>
-            {caption.length}/2200
-          </Text>
+      <Animated.View 
+        entering={FadeIn.delay(300).duration(500)}
+        style={styles.captionSection}
+      >
+        <TextInput
+          style={styles.captionInput}
+          placeholder="Write a caption..."
+          placeholderTextColor={theme.colors.textSecondary}
+          value={caption}
+          onChangeText={setCaption}
+          multiline
+          numberOfLines={4}
+          maxLength={2200}
+          editable={!isUploading}
+          textAlignVertical="top"
+        />
 
-          {/* Upload Progress */}
-          {isUploading && renderProgress()}
+        <Text style={[styles.captionCount, { color: theme.colors.textSecondary }]}>
+          {caption.length}/2200
+        </Text>
 
-          {/* Upload Button */}
-          <TouchableOpacity
-            style={[
-              styles.button,
-              (!caption.trim() || isUploading) && styles.buttonDisabled
-            ]}
-            onPress={handleUpload}
-            disabled={!caption.trim() || isUploading}
+        {isUploading && (
+          <Animated.View 
+            entering={FadeIn}
+            style={styles.progressContainer}
           >
-            {isUploading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
+            <View 
+              style={[
+                styles.progressBar, 
+                { width: `${uploadProgress}%` }
+              ]} 
+            />
+            <Text style={styles.progressText}>
+              Uploading... {Math.round(uploadProgress)}%
+            </Text>
+          </Animated.View>
+        )}
+
+        <TouchableOpacity
+          style={[
+            styles.shareButton,
+            (!caption.trim() || isUploading) && styles.buttonDisabled
+          ]}
+          onPress={handleUpload}
+          disabled={!caption.trim() || isUploading}
+        >
+          {isUploading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <>
+              <Icon name="send-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
               <Text style={styles.buttonText}>Share Post</Text>
-            )}
-          </TouchableOpacity>
-        </>
-      )}
+            </>
+          )}
+        </TouchableOpacity>
+      </Animated.View>
     </ScrollView>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,8 +8,9 @@ import {
   RefreshControl,
   ActivityIndicator,
   Dimensions,
+  SafeAreaView,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
 import { createStyles } from '../../utils/theme';
@@ -17,43 +18,42 @@ import { profileService } from '../../services/profile.service';
 import { postsService } from '../../services/posts.service';
 import Icon from 'react-native-vector-icons/Ionicons';
 import { showMessage } from 'react-native-flash-message';
-import { Post } from '../../types';
 
 const { width } = Dimensions.get('window');
 const NUM_COLUMNS = 3;
-const IMAGE_SIZE = (width - 32) / NUM_COLUMNS;
 
 export default function ProfileScreen() {
-  const [userPosts, setUserPosts] = useState<Post[]>([]);
+  const [userPosts, setUserPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [profileImage, setProfileImage] = useState<string | null>(null);
-  const [username, setUsername] = useState<string>('');
-  const [stats, setStats] = useState({
-    posts: 0,
-    followers: 0,
-    following: 0,
-  });
+  const [profile, setProfile] = useState<any>(null);
 
   const navigation = useNavigation<any>();
   const { user } = useAuth();
   const { theme } = useTheme();
   const styles = createStyles(theme);
 
-  const loadProfile = async () => {
-    if (!user) return;
+  const safeNumber = (value: any) => (typeof value === 'number' ? value : 0);
 
+  const loadProfileData = async () => {
+    if (!user) return setLoading(false);
     try {
-      const [profile, posts] = await Promise.all([
+      setLoading(true);
+      const [profileData, posts] = await Promise.all([
         profileService.getUserProfile(user.uid),
         postsService.getUserPosts(user.uid),
       ]);
 
-      setProfileImage(profile.profileImage || null);
-      setUsername(profile.username || user.email?.split('@')[0] || 'User');
-      setStats(profile.stats || { posts: posts.length, followers: 0, following: 0 });
-      setUserPosts(posts);
-    } catch (error) {
+      if (profileData) {
+        setProfile({
+          ...profileData,
+          followersCount: safeNumber(profileData.followersCount),
+          followingCount: safeNumber(profileData.followingCount),
+        });
+      }
+      setUserPosts(posts || []);
+    } catch (error: any) {
+      console.error('Error loading profile:', error);
       showMessage({
         message: 'Error',
         description: 'Failed to load profile',
@@ -64,114 +64,113 @@ export default function ProfileScreen() {
     }
   };
 
-  const refreshProfile = async () => {
+  useFocusEffect(
+    useCallback(() => {
+      loadProfileData();
+    }, [user])
+  );
+
+  const refreshData = async () => {
     setRefreshing(true);
-    await loadProfile();
+    await loadProfileData();
     setRefreshing(false);
   };
 
-  useEffect(() => {
-    loadProfile();
-  }, []);
-
   const handleEditProfile = () => {
     navigation.navigate('EditProfile', {
-      currentImage: profileImage,
-      currentUsername: username,
+      currentImage: profile?.profileImage,
+      currentUsername: profile?.username || user?.email?.split('@')[0],
     });
   };
 
-  const renderPostItem = ({ item }: { item: Post }) => (
-    <TouchableOpacity
-      style={styles.gridItem}
-      onPress={() => {
-        // Navigate to post detail (optional)
-      }}
-    >
-      <Image
-        source={{ uri: item.imageUrl }}
-        style={styles.gridImage}
-      />
-    </TouchableOpacity>
-  );
-
-  const renderHeader = () => (
-    <View style={styles.profileHeader}>
-      <View style={styles.profileInfo}>
-        <TouchableOpacity onPress={handleEditProfile}>
-          <View style={styles.profileImageContainer}>
-            {profileImage ? (
-              <Image source={{ uri: profileImage }} style={styles.profileImage} />
-            ) : (
-              <View style={[styles.profileImage, styles.profileImagePlaceholder]}>
-                <Icon name="person" size={40} color={theme.colors.textSecondary} />
-              </View>
-            )}
-            <View style={styles.editBadge}>
-              <Icon name="camera" size={16} color="#fff" />
-            </View>
-          </View>
-        </TouchableOpacity>
-
-        <View style={styles.profileStats}>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{stats.posts}</Text>
-            <Text style={styles.statLabel}>Posts</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{stats.followers}</Text>
-            <Text style={styles.statLabel}>Followers</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{stats.following}</Text>
-            <Text style={styles.statLabel}>Following</Text>
-          </View>
-        </View>
-      </View>
-
-      <Text style={styles.username}>{username}</Text>
-
-      <TouchableOpacity
-        style={styles.editProfileButton}
-        onPress={handleEditProfile}
-      >
-        <Text style={styles.editProfileButtonText}>Edit Profile</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
   if (loading) {
     return (
-      <View style={[styles.container, styles.centered]}>
+      <SafeAreaView style={[styles.container, styles.centered]}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
-      </View>
+        <Text style={{ marginTop: 16, color: theme.colors.text }}>Loading profile...</Text>
+      </SafeAreaView>
     );
   }
 
+  const displayName = profile?.username || user?.email?.split('@')[0] || 'User';
+  const profileImage = profile?.profileImage;
+
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={[styles.container, { flex: 1 }]}>
       <FlatList
         data={userPosts}
-        renderItem={renderPostItem}
+        renderItem={({ item }) => (
+          <View style={{ width: width / 3 - 2, height: width / 3 - 2, margin: 1 }}>
+            <Image source={{ uri: item.imageUrl }} style={{ width: '100%', height: '100%' }} />
+          </View>
+        )}
         keyExtractor={(item) => item.id}
         numColumns={NUM_COLUMNS}
-        ListHeaderComponent={renderHeader}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={refreshProfile}
-            colors={[theme.colors.primary]}
-            tintColor={theme.colors.primary}
-          />
-        }
-        ListEmptyComponent={
-          <View style={styles.emptyGrid}>
-            <Icon name="images-outline" size={48} color={theme.colors.textSecondary} />
-            <Text style={styles.emptyText}>No posts yet</Text>
+        ListHeaderComponent={
+          <View style={{ padding: 16 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+              <TouchableOpacity onPress={handleEditProfile} style={{ marginRight: 16 }}>
+                {profileImage ? (
+                  <Image
+                    source={{ uri: profileImage }}
+                    style={{ width: 80, height: 80, borderRadius: 40 }}
+                  />
+                ) : (
+                  <View
+                    style={{
+                      width: 80,
+                      height: 80,
+                      borderRadius: 40,
+                      backgroundColor: theme.colors.surface,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Icon name="person" size={40} color={theme.colors.textSecondary} />
+                  </View>
+                )}
+              </TouchableOpacity>
+
+              <View style={{ flex: 1, flexDirection: 'row', justifyContent: 'space-around' }}>
+                <View style={{ alignItems: 'center' }}>
+                  <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.colors.text }}>
+                    {userPosts.length}
+                  </Text>
+                  <Text style={{ color: theme.colors.textSecondary }}>Posts</Text>
+                </View>
+                <View style={{ alignItems: 'center' }}>
+                  <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.colors.text }}>
+                    {safeNumber(profile?.followersCount)}
+                  </Text>
+                  <Text style={{ color: theme.colors.textSecondary }}>Followers</Text>
+                </View>
+                <View style={{ alignItems: 'center' }}>
+                  <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.colors.text }}>
+                    {safeNumber(profile?.followingCount)}
+                  </Text>
+                  <Text style={{ color: theme.colors.textSecondary }}>Following</Text>
+                </View>
+              </View>
+            </View>
+
+            <Text style={{ fontSize: 16, fontWeight: '600', color: theme.colors.text, marginBottom: 8 }}>
+              {displayName}
+            </Text>
+
+            {profile?.bio ? (
+              <Text style={{ color: theme.colors.text, marginBottom: 16 }}>{profile.bio}</Text>
+            ) : null}
+
+            <TouchableOpacity
+              style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 5, padding: 8, alignItems: 'center' }}
+              onPress={handleEditProfile}
+            >
+              <Text style={{ color: theme.colors.text }}>Edit Profile</Text>
+            </TouchableOpacity>
           </View>
         }
-        contentContainerStyle={styles.profileContent}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshData} />}
       />
-    </View>
+    </SafeAreaView>
   );
 }

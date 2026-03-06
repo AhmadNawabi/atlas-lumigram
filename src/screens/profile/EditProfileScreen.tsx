@@ -1,176 +1,170 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  TextInput,
   Image,
   TouchableOpacity,
-  ScrollView,
+  TextInput,
   ActivityIndicator,
+  SafeAreaView,
   Alert,
 } from 'react-native';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
 import { createStyles } from '../../utils/theme';
 import { profileService } from '../../services/profile.service';
-import { storageService } from '../../services/storage.service';
-import Icon from 'react-native-vector-icons/Ionicons';
 import { showMessage } from 'react-native-flash-message';
+import Icon from 'react-native-vector-icons/Ionicons';
 
 export default function EditProfileScreen() {
+  const navigation = useNavigation<any>();
   const route = useRoute<any>();
-  const navigation = useNavigation();
   const { user } = useAuth();
   const { theme } = useTheme();
   const styles = createStyles(theme);
 
-  const [profileImage, setProfileImage] = useState<string | null>(
-    route.params?.currentImage || null
-  );
-  const [username, setUsername] = useState(
-    route.params?.currentUsername || user?.email?.split('@')[0] || ''
-  );
-  const [isSaving, setIsSaving] = useState(false);
+  // Initial values passed from ProfileScreen
+  const [username, setUsername] = useState(route.params?.currentUsername || '');
+  const [bio, setBio] = useState('');
+  const [profileImage, setProfileImage] = useState(route.params?.currentImage || '');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      if (!user) return;
+      try {
+        const data = await profileService.getUserProfile(user.uid);
+        if (data) {
+          setUsername(data.username || '');
+          setBio(data.bio || '');
+          setProfileImage(data.profileImage || '');
+        }
+      } catch (err) {
+        console.error(err);
+        showMessage({ message: 'Error', description: 'Failed to load profile', type: 'danger' });
+      }
+    };
+    loadProfile();
+  }, [user]);
 
   const pickImage = async () => {
-    try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      
-      if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Please grant camera roll permissions');
-        return;
-      }
+  const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (!permissionResult.granted) {
+    Alert.alert('Permission denied', 'You need to allow access to your photos.');
+    return;
+  }
 
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-      });
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    quality: 0.7,
+    allowsEditing: true,
+  });
 
-      if (!result.canceled) {
-        setProfileImage(result.assets[0].uri);
-      }
-    } catch (error) {
-      showMessage({
-        message: 'Error',
-        description: 'Failed to pick image',
-        type: 'danger',
-      });
-    }
-  };
+  // Updated for new types
+  if (!result.canceled && result.assets && result.assets.length > 0) {
+    setProfileImage(result.assets[0].uri);
+  }
+};
 
   const handleSave = async () => {
     if (!user) return;
-
-    setIsSaving(true);
-
+    setLoading(true);
     try {
-      let imageUrl = profileImage;
-
-      // Upload new image if changed
-      if (profileImage && profileImage !== route.params?.currentImage) {
-        imageUrl = await storageService.uploadImage(
-          profileImage,
-          `profiles/${user.uid}/${Date.now()}`
-        );
-      }
-
-      // Update profile
       await profileService.updateProfile(user.uid, {
-        username: username.trim(),
-        profileImage: imageUrl || null,
+        username,
+        bio,
+        profileImage,
       });
-
-      showMessage({
-        message: 'Success!',
-        description: 'Profile updated successfully',
-        type: 'success',
-      });
-
+      showMessage({ message: 'Success', description: 'Profile updated!', type: 'success' });
       navigation.goBack();
-    } catch (error) {
-      showMessage({
-        message: 'Error',
-        description: 'Failed to update profile',
-        type: 'danger',
-      });
+    } catch (err) {
+      console.error(err);
+      showMessage({ message: 'Error', description: 'Failed to update profile', type: 'danger' });
     } finally {
-      setIsSaving(false);
+      setLoading(false);
     }
   };
 
+  if (loading) {
+    return (
+      <SafeAreaView style={[styles.container, styles.centered]}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={{ marginTop: 16, color: theme.colors.text }}>Saving profile...</Text>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: theme.colors.background }}
-      contentContainerStyle={styles.container}
-    >
-      <View style={styles.editProfileContainer}>
-        <TouchableOpacity
-          style={styles.profileImageEdit}
-          onPress={pickImage}
-          disabled={isSaving}
-        >
-          {profileImage ? (
-            <Image source={{ uri: profileImage }} style={styles.profileImageEdit} />
-          ) : (
-            <View style={[styles.profileImageEdit, styles.profileImagePlaceholder]}>
-              <Icon name="person" size={60} color={theme.colors.textSecondary} />
-            </View>
-          )}
-          <View style={styles.cameraIconContainer}>
-            <Icon name="camera" size={20} color="#fff" />
+    <SafeAreaView style={[styles.container, { padding: 16 }]}>
+      <TouchableOpacity onPress={pickImage} style={{ alignSelf: 'center', marginBottom: 16 }}>
+        {profileImage ? (
+          <Image
+            source={{ uri: profileImage }}
+            style={{ width: 120, height: 120, borderRadius: 60 }}
+          />
+        ) : (
+          <View
+            style={{
+              width: 120,
+              height: 120,
+              borderRadius: 60,
+              backgroundColor: theme.colors.surface,
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
+          >
+            <Icon name="person" size={60} color={theme.colors.textSecondary} />
           </View>
-        </TouchableOpacity>
+        )}
+        <Text style={{ textAlign: 'center', marginTop: 8, color: theme.colors.primary }}>Change Photo</Text>
+      </TouchableOpacity>
 
-        <Text style={styles.changePhotoText}>Tap to change profile photo</Text>
+      <Text style={{ color: theme.colors.text, marginBottom: 4 }}>Username</Text>
+      <TextInput
+        value={username}
+        onChangeText={setUsername}
+        placeholder="Enter your username"
+        style={{
+          borderWidth: 1,
+          borderColor: theme.colors.border,
+          borderRadius: 5,
+          padding: 8,
+          marginBottom: 16,
+          color: theme.colors.text,
+        }}
+      />
 
-        <View style={styles.form}>
-          <Text style={styles.label}>Username</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Enter username"
-            placeholderTextColor={theme.colors.textSecondary}
-            value={username}
-            onChangeText={setUsername}
-            editable={!isSaving}
-          />
+      <Text style={{ color: theme.colors.text, marginBottom: 4 }}>Bio</Text>
+      <TextInput
+        value={bio}
+        onChangeText={setBio}
+        placeholder="Enter your bio"
+        style={{
+          borderWidth: 1,
+          borderColor: theme.colors.border,
+          borderRadius: 5,
+          padding: 8,
+          marginBottom: 16,
+          color: theme.colors.text,
+          height: 80,
+          textAlignVertical: 'top',
+        }}
+        multiline
+      />
 
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            style={[styles.input, styles.disabledInput]}
-            value={user?.email || ''}
-            editable={false}
-          />
-        </View>
-
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity
-            style={[styles.button, styles.cancelButton]}
-            onPress={() => navigation.goBack()}
-            disabled={isSaving}
-          >
-            <Text style={styles.cancelButtonText}>Cancel</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.button,
-              (!username.trim() || isSaving) && styles.buttonDisabled
-            ]}
-            onPress={handleSave}
-            disabled={!username.trim() || isSaving}
-          >
-            {isSaving ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.buttonText}>Save</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </View>
-    </ScrollView>
+      <TouchableOpacity
+        onPress={handleSave}
+        style={{
+          backgroundColor: theme.colors.primary,
+          padding: 12,
+          borderRadius: 5,
+          alignItems: 'center',
+        }}
+      >
+        <Text style={{ color: '#fff', fontWeight: 'bold' }}>Save</Text>
+      </TouchableOpacity>
+    </SafeAreaView>
   );
 }

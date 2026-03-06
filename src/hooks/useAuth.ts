@@ -1,6 +1,5 @@
 import { useContext } from 'react';
 import { AuthContext } from '../contexts/AuthContext';
-import { authService } from '../services/auth.service';
 import { showMessage } from 'react-native-flash-message';
 
 export const useAuth = () => {
@@ -10,9 +9,10 @@ export const useAuth = () => {
     throw new Error('useAuth must be used within an AuthProvider');
   }
 
+  // Wrap the context functions with messages
   const login = async (email: string, password: string) => {
     try {
-      await authService.login(email, password);
+      await context.login(email, password);
       showMessage({
         message: 'Success!',
         description: 'Logged in successfully',
@@ -28,9 +28,9 @@ export const useAuth = () => {
     }
   };
 
-  const register = async (email: string, password: string) => {
+  const register = async (email: string, password: string, username?: string) => {
     try {
-      await authService.register(email, password);
+      await context.register(email, password, username);
       showMessage({
         message: 'Success!',
         description: 'Account created successfully',
@@ -48,7 +48,7 @@ export const useAuth = () => {
 
   const logout = async () => {
     try {
-      await authService.logout();
+      await context.logout();
       showMessage({
         message: 'Success!',
         description: 'Logged out successfully',
@@ -65,10 +65,12 @@ export const useAuth = () => {
 
   return {
     user: context.user,
+    userProfile: context.userProfile,
     loading: context.loading,
     error: context.error,
     login,
     register,
     logout,
+    refreshProfile: context.refreshProfile,
   };
 };
